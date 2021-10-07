@@ -22,6 +22,8 @@ from statsmodels.regression.rolling import RollingOLS
 from statsmodels.regression.rolling import RollingWLS
 from tqdm import tqdm
 
+# Custom
+from aolm_string_utilities import *
 
 
 # Globals
@@ -32,10 +34,15 @@ debug_separator = "=============================================================
 paths = {
 	
 	"aphorisms": "{0}{1}input{1}twain_aphorisms.csv".format(os.getcwd(), os.sep),
-	"autobio_folder": "{0}{1}output{1}twain_autobio{1}".format(os.getcwd(), os.sep),
+	"autobio_folder": "{0}{1}input{1}twain_autobio{1}".format(os.getcwd(), os.sep),
 	"autobio_model": "{0}{1}input{1}twain_autobio.model".format(os.getcwd(), os.sep),
 	"distances": "{0}{1}output{1}twain_distances.json".format(os.getcwd(), os.sep),
 	"closest_sentences": "{0}{1}output{1}twain_closest_sentences.csv".format(os.getcwd(), os.sep)
+}
+plotting_palette = {
+	"control": "rgb(0,114,178)",
+	"worst": "rgb(213,94,0)",
+	"best": "rgb(0,158,115)"
 }
 
 
@@ -44,6 +51,7 @@ paths = {
 # From: https://medium.com/analytics-vidhya/linear-algebra-from-strang-3394007ec79c
 def calc_proj_matrix(A):
     return A*np.linalg.inv(A.T*A)*A.T
+
 def calc_proj(b, A):
     P = calc_proj_matrix(A)
     return P*b.T
@@ -111,6 +119,22 @@ def get_word_vectors_from_wordlist(p_word_list, p_model):
 
 	return word_vectors
 
+def meets_sentence_criteria(p_sentence_string):
+
+	minimum_words = 5
+
+	# 1. Clean up the string first
+	clean_sentence = clean_string(p_sentence_string)
+
+	# 2. Strings devoid of non-punctuation characters are invalid
+	if 0 == len(clean_sentence):
+		return False
+
+	# 2. Sentences must have a minimum amount of tokens
+	if len(clean_sentence.split()) < minimum_words:
+		return False
+
+	return True
 
 def main():
 
@@ -207,6 +231,9 @@ def main():
 	# and average those distances
 	twain_doc_aphdist_bysent = { "1": [], "2": [], "3": [] }
 
+	# Used to cancel out invalid sentences
+	max_distance = 100000.0
+
 	if not os.path.exists(paths["distances"]):
 
 		if debug_flag:
@@ -225,19 +252,22 @@ def main():
 				doc_avg_distances = []
 				for sent in twain_docs_bysent[str_volume][doc_number]:
 
-					# I. Get word list of this sentence
-					sent_word_list = gensim.utils.simple_preprocess(sent)
+					# Do not include invalid sentences in average distance calculation
+					if not meets_sentence_criteria(sent):
+						# print("Sent: \'{0}\' does not meet criteria".format(sent))
+						doc_avg_distances.append(max_distance)
+					else:
 
-					# II. Measure the distance between each aphorism and this sentence
-					distances = []
-					for aph_word_list in aphorisms:
-						distances.append(distance_from_sentence_to_sentence(aph_word_list, sent_word_list, autobio_model))
+						# I. Get word list of this sentence
+						sent_word_list = gensim.utils.simple_preprocess(sent)
 
-					# III. Compute and store the average distance
-					doc_avg_distances.append(float(statistics.mean(distances)))
+						# II. Measure the distance between each aphorism and this sentence
+						distances = []
+						for aph_word_list in aphorisms:
+							distances.append(distance_from_sentence_to_sentence(aph_word_list, sent_word_list, autobio_model))
 
-					# print("Doc avg distances:")
-					# print(doc_avg_distances)
+						# III. Compute and store the average distance
+						doc_avg_distances.append(float(statistics.mean(distances)))
 
 				# B. Save average distances from aphorisms for this doc
 				twain_doc_aphdist_bysent[str_volume].append(doc_avg_distances)
@@ -367,23 +397,21 @@ def main():
 		print("Writing closest sentences and their scores to disk...")
 
 	# C. Output closest sentences to file with their aphorism scores
-	with open(paths["closest_sentences"], "w") as output_file:
+	if not os.path.exists(paths["closest_sentences"]):
+		with open(paths["closest_sentences"], "w") as output_file:
 
-		output_file.write("score,sentence\n")
+			output_file.write("score,sentence\n")
 
-		for volume_number in range(3):
-			str_volume = str(volume_number + 1)
-			for doc_number in range(twain_volume_doc_count[str_volume]):
-				output_file.write("{0},{1}\n".format(closest_sentences[str_volume][doc_number][0],
-					closest_sentences[str_volume][doc_number][1]))
+			for volume_number in range(3):
+				str_volume = str(volume_number + 1)
+				for doc_number in range(twain_volume_doc_count[str_volume]):
+					output_file.write("{0},{1}\n".format(closest_sentences[str_volume][doc_number][0],
+						closest_sentences[str_volume][doc_number][1]))
 
-	if True:
-		return
 
 	# 8. Scatterplot the sentence data points (y - aphorism scale, x - document number)
 
 	# A. X-Axis: Gather aphorism scores of closest sentences in volume,document order
-	
 	aphorism_scores = []
 	for volume_number in range(3):
 		str_volume = str(volume_number + 1)
@@ -412,12 +440,25 @@ def main():
 
 	# D. Do a scatter plot of the aphorism scores over text time of the autobiography volumes
 	# including a line for the OLS regression
-	# fig = go.Figure(data=go.Scatter(x=cleaned_doc_indices, y=cleaned_aphorism_scores, mode="markers"))
-	# fig.add_trace(go.Scatter(x=cleaned_doc_indices, y=df["bestfit"], mode="lines"))
-	# fig.show()
+	fig = go.Figure(data=go.Scatter(name="Score", x=cleaned_doc_indices, y=cleaned_aphorism_scores, mode="markers", marker_size=10, marker_color="rgb(52, 82, 235)"))
+	fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["bestfit"], mode="lines", marker_color=plotting_palette["control"]))
+	fig.update_layout(
+		  # title="Plot Title",
+	    xaxis_title="Book Sections",
+	    yaxis_title="Aphorism Score",
+	    paper_bgcolor='rgb(0,0,0)',
+	    plot_bgcolor='rgb(0,0,0)',
+	    # legend_title="Legend Title",
+	    font=dict(
+	        # family="Courier New, monospace",
+	        size=18,
+	        color="White"
+	    )
+	)	
+	fig.show()
 
-	# if True:
-	# 	return
+	if True:
+		return
 
 	# 9. Run regression models over the data points, calculating the AIC score
 	# Based on: https://www.statology.org/aic-in-python/ and https://www.statsmodels.org/stable/api.html
@@ -457,21 +498,55 @@ def main():
 	aic_results = [model(cleaned_aphorism_scores, cleaned_doc_indices).fit().aic for model in regression_models]
 
 	# 10. Create a bar plot of the AIC scores for each regression model
-	fig = go.Figure([go.Bar(x=reg_model_names, y=aic_results)])
-	fig.show()
+	# fig = go.Figure([go.Bar(x=reg_model_names, y=aic_results)])
+	# fig.update_layout(
+ # 	    # title="Plot Title",
+	#     xaxis_title="Linear Regression Models",
+	#     yaxis_title="AIC Score",
+	# 	  paper_bgcolor='rgb(0,0,0)',
+	#     # legend_title="Legend Title",
+	#     font=dict(
+	#         # family="Courier New, monospace",
+	#         size=18,
+	#         color="White"
+	#     )
+	# )		
+	# fig.show()
 
-	# # 11. Compare OLS to GLSAR
-	# # C. Do OLS regression for example
-	# df = pd.DataFrame({"X": cleaned_doc_indices, "Y": cleaned_aphorism_scores})
-	# df["nextbestfit"] = sm.OLS(df["Y"], sm.add_constant(df["X"])).fit().fittedvalues
-	# df["bestfit"] = sm.GLSAR(df["Y"], sm.add_constant(df["X"])).fit().fittedvalues
+	# if True:
+	# 	return
 
-	# # D. Do a scatter plot of the aphorism scores over text time of the autobiography volumes
-	# # including a line for the OLS regression
-	# fig = go.Figure(data=go.Scatter(name="Score", x=cleaned_doc_indices, y=cleaned_aphorism_scores, mode="markers"))
-	# fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["nextbestfit"], mode="lines"))
-	# fig.add_trace(go.Scatter(name="GLSAR", x=cleaned_doc_indices, y=df["bestfit"], mode="lines"))
-	# fig.show()	
+	# 11. Compare OLS to GLSAR
+	# C. Do OLS regression for example
+	df = pd.DataFrame({"X": cleaned_doc_indices, "Y": cleaned_aphorism_scores})
+	df["nextbestfit"] = sm.OLS(df["Y"], sm.add_constant(df["X"])).fit().fittedvalues
+	df["bestfit"] = sm.GLSAR(df["Y"], sm.add_constant(df["X"])).fit().fittedvalues
+	df["leastbestfit"] = sm.RecursiveLS(df["Y"], sm.add_constant(df["X"])).fit().fittedvalues
+
+	# D. Do a scatter plot of the aphorism scores over text time of the autobiography volumes
+	# including a line for the OLS regression
+	fig = go.Figure(data=go.Scatter(name="Score", x=cleaned_doc_indices, y=cleaned_aphorism_scores, mode="markers", marker_size=10, marker_color="rgb(52, 82, 235)"))
+	fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["nextbestfit"], mode="lines", marker_color=plotting_palette["control"]))
+	fig.add_trace(go.Scatter(name="GLSAR", x=cleaned_doc_indices, y=df["bestfit"], mode="lines", marker_color=plotting_palette["best"]))
+	fig.add_trace(go.Scatter(name="RecursiveLS", x=cleaned_doc_indices, y=df["leastbestfit"], mode="lines", marker_color=plotting_palette["worst"]))
+	fig.update_layout(
+        # title="Plot Title",
+	    xaxis_title="Book Sections",
+	    yaxis_title="Aphorism Score",
+	    # legend_title="Legend Title",
+	    paper_bgcolor='rgb(0,0,0)',
+	    font=dict(
+	        # family="Courier New, monospace",
+	        size=18,
+	        color="White"
+	    )
+	)		
+	fig.show()	
+
+	# TODO: (1) Clean up criteria for sentences to be valid and remove invalid ones
+	# 		(2) Polish scatter plot and bar graph
+	#		(3) Include slide with AIC-preferred regression model line on the scatterplot
+	#		(4) Add aphorism from closest sentences file to last slide
 
 if "__main__" == __name__:
 	main()
