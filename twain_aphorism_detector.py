@@ -1,6 +1,7 @@
 # Author: Jonathan Armoza
-
-# Let's detect some aphorisms, baby
+# Creation date: August 2021
+# Purpose: Currently full workflow for aphorism detection in Mark Twain's autobiography, plotting data, and AIC model selection
+# NOTE: This will be broken done by functionality in the next release of this code - J. Armoza; October 8, 2021
 
 # Imports
 
@@ -28,18 +29,23 @@ from aolm_string_utilities import *
 
 # Globals
 
-
+# Debug
 debug_flag = True
 debug_separator = "========================================================================"
+
+# Paths to all input/output files
 paths = {
 	
 	"aphorisms": "{0}{1}input{1}twain_aphorisms.csv".format(os.getcwd(), os.sep),
 	"autobio_folder": "{0}{1}input{1}twain_autobio{1}".format(os.getcwd(), os.sep),
 	"autobio_model": "{0}{1}input{1}twain_autobio.model".format(os.getcwd(), os.sep),
-	"distances": "{0}{1}output{1}twain_distances.json".format(os.getcwd(), os.sep),
-	"closest_sentences": "{0}{1}output{1}twain_closest_sentences.csv".format(os.getcwd(), os.sep)
+	"closest_sentences": "{0}{1}output{1}twain_closest_sentences.csv".format(os.getcwd(), os.sep),
+	"distances": "{0}{1}output{1}twain_distances.json".format(os.getcwd(), os.sep)
 }
-plotting_palette = {
+
+# Graph colors for colorblindness
+cb_plotting_palette = {
+
 	"control": "rgb(0,114,178)",
 	"worst": "rgb(213,94,0)",
 	"best": "rgb(0,158,115)"
@@ -48,17 +54,7 @@ plotting_palette = {
 
 # Utility functions
 
-# From: https://medium.com/analytics-vidhya/linear-algebra-from-strang-3394007ec79c
-def calc_proj_matrix(A):
-    return A*np.linalg.inv(A.T*A)*A.T
-
-def calc_proj(b, A):
-    P = calc_proj_matrix(A)
-    return P*b.T
-
 def create_matrix_from_sentence(p_word_list, p_model):
-
-	# print("Word list: {0}".format(p_word_list))
 
 	# 1. Gather all word vectors of the word list in the word2vec model
 	word_vectors = get_word_vectors_from_wordlist(p_word_list, p_model)
@@ -81,31 +77,22 @@ def distance_from_sentence_to_sentence(p_sent1_wordlist, p_sent2_wordlist, p_mod
 
 	# 3. Calculate projection vectors for each word in second sentence to
 	# subspace made by first sentence matrix
-	# proj_vectors = [calc_proj(v, sent1_matrix) for v in sent2_vectors]
 
 	# From https://stackoverflow.com/questions/8942950/how-do-i-find-the-orthogonal-projection-of-a-point-onto-a-plane
 	# The projection of a point q = (x, y, z) onto a plane given by a point p = (a, b, c) and a (unit) normal n = (d, e, f) is
 	# q_proj = q - dot(q - p, n) * n
+
 	n = np.linalg.norm(sent1_matrix)
 	unit_n = n / np.linalg.norm(n)
 	proj_vectors = [v - np.dot(v - sent1_matrix, unit_n) * unit_n for v in sent2_vectors]
 
-	# print("Projection vectors: {0}\n\nSentence 2 vectors: {1}".format(proj_vectors, sent2_vectors))
-
 	# 4. Create a distance vector between projected points on the first sentence plane and the second sentences' words
 	distances = [np.linalg.norm(proj_vectors[i] - sent2_vectors[i]) for i in range(len(sent2_vectors))]
-	
-	# print("Distance from sentence words to aphorism plane:")
-	# print(distances)
-	# print("Norm of those distances:")
-	# print(np.linalg.norm(distances))
 
 	# 5. Return the magnitude of the distance vector
 	return np.linalg.norm(distances)
 
 def get_word_vectors_from_wordlist(p_word_list, p_model): 
-
-	# print("Word list: {0}".format(p_word_list))
 
 	# 1. Gather all word vectors of the word list in the word2vec model
 	word_vectors = []
@@ -113,8 +100,6 @@ def get_word_vectors_from_wordlist(p_word_list, p_model):
 
 		# I. Make sure the aphorism word is in the model before retrieving a vector
 		if p_word_list[index] in p_model.wv.key_to_index:
-
-			# print("Storing vector for {0}: {1}".format(p_word_list[index], p_model.wv[p_word_list[index]]))
 			word_vectors.append(p_model.wv[p_word_list[index]])
 
 	return word_vectors
@@ -130,7 +115,7 @@ def meets_sentence_criteria(p_sentence_string):
 	if 0 == len(clean_sentence):
 		return False
 
-	# 2. Sentences must have a minimum amount of tokens
+	# 3. Sentences must have a minimum amount of tokens
 	if len(clean_sentence.split()) < minimum_words:
 		return False
 
@@ -216,18 +201,7 @@ def main():
 		autobio_model = gensim.models.Word2Vec.load(paths["autobio_model"])
 
 
-	# if debug_flag:
-	# 	print("Creating word vector matrices for aphorisms...")
-
-	# # 4. Produce word vector matrix for each aphorism based on autobio word2vec model
-	# aphorism_matrices = []
-	# for word_list in aphorisms:
-			
-	# 	# A. Create and store a matrix from the word vectors
-	# 	aphorism_matrices.append(create_matrix_from_sentence(word_list, autobio_model))
-
-
-	# 5. Consider each sentence as a word vector matrix and calculate its distance from each aphorism
+	# 4. Consider each sentence as a word vector matrix and calculate its distance from each aphorism
 	# and average those distances
 	twain_doc_aphdist_bysent = { "1": [], "2": [], "3": [] }
 
@@ -254,7 +228,6 @@ def main():
 
 					# Do not include invalid sentences in average distance calculation
 					if not meets_sentence_criteria(sent):
-						# print("Sent: \'{0}\' does not meet criteria".format(sent))
 						doc_avg_distances.append(max_distance)
 					else:
 
@@ -274,72 +247,7 @@ def main():
 
 		# B. Write distances and sentences to file here
 		with open(paths["distances"], "w") as distance_file:
-
 			json.dump(twain_doc_aphdist_bysent, distance_file)			
-
-		# # A. Calculate distances between sentences and aphorisms
-		# for volume_number in range(3):
-
-		# 	print("Calculating distances for volume {0} ...".format(str_volume))
-
-		# 	str_volume = str(volume_number + 1)
-		# 	for doc_number in tqdm(range(twain_volume_doc_count[str_volume])):
-
-		# 		# A. Compute average distances between doc's sentences and aphorisms
-		# 		doc_avg_distances = []
-		# 		for sent in twain_docs_bysent[str_volume][doc_number]:
-
-		# 			# I. Create a matrix of the word vectors of this sentence
-		# 			sent_matrix = create_matrix_from_sentence(gensim.utils.simple_preprocess(sent), autobio_model)
-
-		# 			# print("Sentence matrix")
-		# 			# print(sent_matrix)
-		# 			# print(debug_separator)
-		# 			# print("Aphorism matrices")
-		# 			# print(aphorism_matrices)
-
-		# 			# II. Check distance to each aphorism matrix
-		# 			# def distance_fn(matrix1, matrix2):
-		# 			# 	dist = (matrix1 - matrix2)**2
-		# 			# 	dist = np.sum(dist, axis=1)
-		# 			# 	return np.sqrt(dist)
-
-		# 			distances = []
-		# 			for aph_matrix in aphorism_matrices:
-
-		# 				# A. Copy sentence matrix into list that matches aphorism matrix size
-		# 				sent_matrix_list = sent_matrix.tolist()
-		# 				new_sent_matrix_list = [[0] * aph_matrix.shape[1]] * aph_matrix.shape[0]
-		# 				for index in range(sent_matrix.shape[0]):
-		# 					for index2 in range(sent_matrix.shape[1]):
-		# 						new_sent_matrix_list = sent_matrix_list[index][index2]
-
-		# 				# B. Convert the new sentence 2d list into matrix
-		# 				new_sent_matrix = np.matrix(new_sent_matrix_list)
-
-		# 				# reshaped_sent_matrix = np.empty(aph_matrix.shape, dtype=np.ndarray)
-		# 				# print(sent_matrix.shape)
-						
-		# 				# if sent_matrix.shape[0] < aph_matrix.shape[0]:
-		# 				# for i in range(aph_matrix.shape[0]):
-		# 				# 	for j in range(aph_matrix.shape[1]):
-		# 				# 		print("sent_matrix[i,j]: {0},{1}".format(sent_matrix[i,j]))
-		# 						# reshaped_sent_matrix[i][j] = sent_matrix[i][j]
-							
-		# 				# print(reshaped_sent_matrix.shape)
-		# 				distances.append(np.linalg.norm(aph_matrix - new_sent_matrix))
-
-		# 			# distances = [distance_fn(sent_matrix, aph_matrix) for aph_matrix in aphorism_matrices]
-
-		# 			# III. Compute and store the average distance
-		# 			doc_avg_distances.append(statistics.mean(distances))
-
-		# 		# B. Save average distances from aphorisms for this doc
-		# 		twain_doc_aphdist_bysent[str_volume].append(doc_avg_distances)
-
-		# # B. Write distances and sentences to file here
-		# with open(paths["distances"], "w") as distance_file:
-		# 	json.dump(twain_doc_aphdist_bysent, distance_file)
 
 	else:
 
@@ -352,7 +260,7 @@ def main():
 	if debug_flag:
 		print("Finding sentences with the smallest average distance to the aphorisms...")
 
-	# 6. Take the sentence with the smallest distance from each document
+	# 5. Take the sentence with the smallest distance from each document
 	closest_sentences = { "1": [], "2": [], "3": [] }
 	for volume_number in range(3):
 
@@ -367,7 +275,7 @@ def main():
 			closest_sentences[str_volume].append([smallest_distance, twain_docs_bysent[str_volume][doc_number][smallest_distance_index]])
 
 
-	# 7. Score the sentences on an aphorism detector scale between [0, 1]
+	# 6. Score the sentences on an aphorism detector scale between [0, 1]
 
 	# A. Find farthest sentence
 	farthest_distance = 0
@@ -409,7 +317,7 @@ def main():
 						closest_sentences[str_volume][doc_number][1]))
 
 
-	# 8. Scatterplot the sentence data points (y - aphorism scale, x - document number)
+	# 7. Scatterplot the sentence data points (y - aphorism scale, x - document number)
 
 	# A. X-Axis: Gather aphorism scores of closest sentences in volume,document order
 	aphorism_scores = []
@@ -441,13 +349,13 @@ def main():
 	# D. Do a scatter plot of the aphorism scores over text time of the autobiography volumes
 	# including a line for the OLS regression
 	fig = go.Figure(data=go.Scatter(name="Score", x=cleaned_doc_indices, y=cleaned_aphorism_scores, mode="markers", marker_size=10, marker_color="rgb(52, 82, 235)"))
-	fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["bestfit"], mode="lines", marker_color=plotting_palette["control"]))
+	fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["bestfit"], mode="lines", marker_color=cb_plotting_palette["control"]))
 	fig.update_layout(
-		  # title="Plot Title",
+		# title="Plot Title",
 	    xaxis_title="Book Sections",
 	    yaxis_title="Aphorism Score",
-	    paper_bgcolor='rgb(0,0,0)',
-	    plot_bgcolor='rgb(0,0,0)',
+	    # paper_bgcolor='rgb(0,0,0)',
+	    # plot_bgcolor='rgb(0,0,0)',
 	    # legend_title="Legend Title",
 	    font=dict(
 	        # family="Courier New, monospace",
@@ -460,7 +368,7 @@ def main():
 	if True:
 		return
 
-	# 9. Run regression models over the data points, calculating the AIC score
+	# 8. Run regression models over the data points, calculating the AIC score
 	# Based on: https://www.statology.org/aic-in-python/ and https://www.statsmodels.org/stable/api.html
 
 	# 1. Ordinary Least Squares
@@ -500,10 +408,10 @@ def main():
 	# 10. Create a bar plot of the AIC scores for each regression model
 	# fig = go.Figure([go.Bar(x=reg_model_names, y=aic_results)])
 	# fig.update_layout(
- # 	    # title="Plot Title",
+	#	  # title="Plot Title",
 	#     xaxis_title="Linear Regression Models",
 	#     yaxis_title="AIC Score",
-	# 	  paper_bgcolor='rgb(0,0,0)',
+	# 	  # paper_bgcolor='rgb(0,0,0)',
 	#     # legend_title="Legend Title",
 	#     font=dict(
 	#         # family="Courier New, monospace",
@@ -512,9 +420,6 @@ def main():
 	#     )
 	# )		
 	# fig.show()
-
-	# if True:
-	# 	return
 
 	# 11. Compare OLS to GLSAR
 	# C. Do OLS regression for example
@@ -526,15 +431,15 @@ def main():
 	# D. Do a scatter plot of the aphorism scores over text time of the autobiography volumes
 	# including a line for the OLS regression
 	fig = go.Figure(data=go.Scatter(name="Score", x=cleaned_doc_indices, y=cleaned_aphorism_scores, mode="markers", marker_size=10, marker_color="rgb(52, 82, 235)"))
-	fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["nextbestfit"], mode="lines", marker_color=plotting_palette["control"]))
-	fig.add_trace(go.Scatter(name="GLSAR", x=cleaned_doc_indices, y=df["bestfit"], mode="lines", marker_color=plotting_palette["best"]))
-	fig.add_trace(go.Scatter(name="RecursiveLS", x=cleaned_doc_indices, y=df["leastbestfit"], mode="lines", marker_color=plotting_palette["worst"]))
+	fig.add_trace(go.Scatter(name="OLS", x=cleaned_doc_indices, y=df["nextbestfit"], mode="lines", marker_color=cb_plotting_palette["control"]))
+	fig.add_trace(go.Scatter(name="GLSAR", x=cleaned_doc_indices, y=df["bestfit"], mode="lines", marker_color=cb_plotting_palette["best"]))
+	fig.add_trace(go.Scatter(name="RecursiveLS", x=cleaned_doc_indices, y=df["leastbestfit"], mode="lines", marker_color=cb_plotting_palette["worst"]))
 	fig.update_layout(
         # title="Plot Title",
 	    xaxis_title="Book Sections",
 	    yaxis_title="Aphorism Score",
 	    # legend_title="Legend Title",
-	    paper_bgcolor='rgb(0,0,0)',
+	    # paper_bgcolor='rgb(0,0,0)',
 	    font=dict(
 	        # family="Courier New, monospace",
 	        size=18,
@@ -543,10 +448,92 @@ def main():
 	)		
 	fig.show()	
 
-	# TODO: (1) Clean up criteria for sentences to be valid and remove invalid ones
-	# 		(2) Polish scatter plot and bar graph
-	#		(3) Include slide with AIC-preferred regression model line on the scatterplot
-	#		(4) Add aphorism from closest sentences file to last slide
 
 if "__main__" == __name__:
 	main()
+
+# Unused code
+
+# From: https://medium.com/analytics-vidhya/linear-algebra-from-strang-3394007ec79c
+# def calc_proj_matrix(A):
+#     return A*np.linalg.inv(A.T*A)*A.T
+
+# def calc_proj(b, A):
+#     P = calc_proj_matrix(A)
+#     return P*b.T
+
+# Old implementation of distance between aphorisms and sentence
+
+# if debug_flag:
+# 	print("Creating word vector matrices for aphorisms...")
+
+# # 4. Produce word vector matrix for each aphorism based on autobio word2vec model
+# aphorism_matrices = []
+# for word_list in aphorisms:
+		
+# 	# A. Create and store a matrix from the word vectors
+# 	aphorism_matrices.append(create_matrix_from_sentence(word_list, autobio_model))
+
+# # 5A. Calculate distances between sentences and aphorisms
+# for volume_number in range(3):
+
+# 	print("Calculating distances for volume {0} ...".format(str_volume))
+
+# 	str_volume = str(volume_number + 1)
+# 	for doc_number in tqdm(range(twain_volume_doc_count[str_volume])):
+
+# 		# A. Compute average distances between doc's sentences and aphorisms
+# 		doc_avg_distances = []
+# 		for sent in twain_docs_bysent[str_volume][doc_number]:
+
+# 			# I. Create a matrix of the word vectors of this sentence
+# 			sent_matrix = create_matrix_from_sentence(gensim.utils.simple_preprocess(sent), autobio_model)
+
+# 			# print("Sentence matrix")
+# 			# print(sent_matrix)
+# 			# print(debug_separator)
+# 			# print("Aphorism matrices")
+# 			# print(aphorism_matrices)
+
+# 			# II. Check distance to each aphorism matrix
+# 			# def distance_fn(matrix1, matrix2):
+# 			# 	dist = (matrix1 - matrix2)**2
+# 			# 	dist = np.sum(dist, axis=1)
+# 			# 	return np.sqrt(dist)
+
+# 			distances = []
+# 			for aph_matrix in aphorism_matrices:
+
+# 				# A. Copy sentence matrix into list that matches aphorism matrix size
+# 				sent_matrix_list = sent_matrix.tolist()
+# 				new_sent_matrix_list = [[0] * aph_matrix.shape[1]] * aph_matrix.shape[0]
+# 				for index in range(sent_matrix.shape[0]):
+# 					for index2 in range(sent_matrix.shape[1]):
+# 						new_sent_matrix_list = sent_matrix_list[index][index2]
+
+# 				# B. Convert the new sentence 2d list into matrix
+# 				new_sent_matrix = np.matrix(new_sent_matrix_list)
+
+# 				# reshaped_sent_matrix = np.empty(aph_matrix.shape, dtype=np.ndarray)
+# 				# print(sent_matrix.shape)
+				
+# 				# if sent_matrix.shape[0] < aph_matrix.shape[0]:
+# 				# for i in range(aph_matrix.shape[0]):
+# 				# 	for j in range(aph_matrix.shape[1]):
+# 				# 		print("sent_matrix[i,j]: {0},{1}".format(sent_matrix[i,j]))
+# 						# reshaped_sent_matrix[i][j] = sent_matrix[i][j]
+					
+# 				# print(reshaped_sent_matrix.shape)
+# 				distances.append(np.linalg.norm(aph_matrix - new_sent_matrix))
+
+# 			# distances = [distance_fn(sent_matrix, aph_matrix) for aph_matrix in aphorism_matrices]
+
+# 			# III. Compute and store the average distance
+# 			doc_avg_distances.append(statistics.mean(distances))
+
+# 		# B. Save average distances from aphorisms for this doc
+# 		twain_doc_aphdist_bysent[str_volume].append(doc_avg_distances)
+
+# # B. Write distances and sentences to file here
+# with open(paths["distances"], "w") as distance_file:
+# 	json.dump(twain_doc_aphdist_bysent, distance_file)
